@@ -36,6 +36,7 @@ The endpoint can be overridden with `REFERO_MCP_URL` for testing or a compatible
 ## Examples
 
 ```sh
+refero skill > SKILL.md
 refero search styles "editorial monochrome SaaS landing page"
 refero search screens "pricing page annual monthly toggle" --platform web --json
 refero search flows "subscription cancellation with retention offer" --platform web
@@ -44,6 +45,8 @@ refero get screen 20c61554-3c93-4848-aeb1-e3c1ba62d99d --json
 refero similar 20c61554-3c93-4848-aeb1-e3c1ba62d99d --limit 5
 refero image 20c61554-3c93-4848-aeb1-e3c1ba62d99d --size thumbnail --output ./reference.png
 ```
+
+`refero skill` prints the bundled agent-facing research methodology and CLI/MCP tool map. Use it when installing the CLI into an agent workflow; use `refero skill --json` when a host needs the skill as structured data.
 
 Searches and detail calls default to Markdown because that is the most useful format for a terminal and an AI workflow. Add `--json` for scripts and pipelines. Screen and flow searches require `--platform web` or `--platform ios`, matching the MCP API.
 

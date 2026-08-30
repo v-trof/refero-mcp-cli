@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { McpClient, ReferoError, DEFAULT_URL, extractImage, extractToolPayload } from './mcp-client.js';
@@ -9,6 +9,7 @@ const HELP = `Refero CLI — design research from your terminal
 
 Usage:
   refero auth login|status|logout
+  refero skill
   refero search styles <query> [--page N] [--json]
   refero search screens <query> --platform web|ios [--page N] [--json]
   refero search flows <query> --platform web|ios [--page N] [--json]
@@ -69,13 +70,13 @@ function ids(value, label) {
   return values;
 }
 
-function printPayload(payload, json) {
+function printPayload(payload, json, stdout = process.stdout) {
   if (json) {
-    process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+    stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
   } else if (typeof payload === 'string') {
-    process.stdout.write(`${payload.trim()}\n`);
+    stdout.write(`${payload.trim()}\n`);
   } else {
-    process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+    stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
   }
 }
 
@@ -87,13 +88,18 @@ async function run(argv, io = {}) {
     return;
   }
   const [command, kind, ...rest] = positional;
+  if (command === 'skill') {
+    const content = await readFile(new URL('./skill.md', import.meta.url), 'utf8');
+    printPayload(options.json ? { name: 'refero-design', content } : content, options.json, stdout);
+    return;
+  }
   if (command === 'auth') {
     if (kind === 'login') { await login({ stdin: io.stdin, stdout, browser: io.browser }); return; }
     if (kind === 'logout') { await clearAuth(); stdout.write('Signed out.\n'); return; }
     if (kind === 'status') {
       const auth = await getStoredAuth();
       const status = auth?.access_token ? { signed_in: true, config: authPath(), obtained_at: auth.obtained_at, expires_at: auth.expires_in && auth.obtained_at ? auth.obtained_at + auth.expires_in * 1000 : undefined } : { signed_in: false, config: authPath() };
-      printPayload(status, options.json);
+      printPayload(status, options.json, stdout);
       return;
     }
     throw new ReferoError('Auth command must be login, status, or logout.');
@@ -141,7 +147,7 @@ async function run(argv, io = {}) {
   } else {
     throw new ReferoError(`Unknown command: ${command}. Use --help for usage.`);
   }
-  printPayload(extractToolPayload(result), options.json);
+  printPayload(extractToolPayload(result), options.json, stdout);
 }
 
 const launchedDirectly = process.argv[1] && path.resolve(process.argv[1]).toLowerCase() === path.resolve(fileURLToPath(import.meta.url)).toLowerCase();

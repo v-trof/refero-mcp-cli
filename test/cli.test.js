@@ -14,6 +14,14 @@ test('parses positional arguments and long options', () => {
   assert.deepEqual(parsed.options, { platform: 'web', page: '2', json: true });
 });
 
+test('returns the bundled agent skill without making a network request', async () => {
+  const stdout = { output: '', write(value) { this.output += value; } };
+  await run(['skill'], { stdout, fetchImpl: async () => { throw new Error('network should not be used'); } });
+  assert.match(stdout.output, /^---\nname: refero-design/);
+  assert.match(stdout.output, /refero search styles/);
+  assert.match(stdout.output, /Research before design work/);
+});
+
 test('extracts structured content, JSON text, and plain text', () => {
   assert.deepEqual(extractToolPayload({ structuredContent: { ok: true } }), { ok: true });
   assert.deepEqual(extractToolPayload({ content: [{ type: 'text', text: '{"ok":true}' }] }), { ok: true });
