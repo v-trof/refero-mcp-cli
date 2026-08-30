@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { extractImage, extractToolPayload, McpClient } from '../src/mcp-client.js';
-import { parseArgs } from '../src/cli.js';
+import { parseArgs, run } from '../src/cli.js';
 
 test('parses positional arguments and long options', () => {
   const parsed = parseArgs(['search', 'screens', 'pricing', 'page', '--platform', 'web', '--page=2', '--json']);
@@ -46,4 +46,32 @@ test('initializes an MCP session and calls a tool', async () => {
   assert.equal(requests[2].body.params.name, 'refero_search_styles');
   assert.equal(requests[2].headers.get('Authorization'), 'Bearer secret');
   assert.equal(requests[2].headers.get('Mcp-Session-Id'), 'session-test');
+});
+
+test('maps every documented research command to the current MCP tool contract', async () => {
+  const calls = [];
+  const fetchImpl = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    if (body.method === 'tools/call') calls.push(body.params);
+    if (body.method === 'notifications/initialized') return new Response(null, { status: 202 });
+    return new Response(JSON.stringify({ jsonrpc: '2.0', id: body.id, result: { content: [{ type: 'text', text: '{}' }] } }), { headers: { 'content-type': 'application/json', 'mcp-session-id': 'test' } });
+  };
+  const stdout = { output: '', write(value) { this.output += value; } };
+  const commands = [
+    ['search', 'styles', 'editorial monochrome'],
+    ['search', 'screens', 'pricing page', '--platform', 'web'],
+    ['search', 'flows', 'signup onboarding', '--platform', 'ios'],
+    ['get', 'style', 'style-id'],
+    ['get', 'screen', 'screen-a', 'screen-b'],
+    ['get', 'flow', '11201', '11202'],
+    ['similar', 'screen-a', '--limit', '5']
+  ];
+  for (const command of commands) await run(command, { fetchImpl, stdout });
+  assert.deepEqual(calls.map(({ name }) => name), [
+    'refero_search_styles', 'refero_search_screens', 'refero_search_flows',
+    'refero_get_style', 'refero_get_screen', 'refero_get_flow', 'refero_get_similar_screens'
+  ]);
+  assert.deepEqual(calls[2].arguments, { query: 'signup onboarding', page: 1, response_format: 'md', platform: 'ios' });
+  assert.deepEqual(calls[5].arguments, { flow_ids: [11201, 11202], response_format: 'md' });
+  assert.deepEqual(calls[6].arguments, { screen_id: 'screen-a', limit: 5, response_format: 'md' });
 });

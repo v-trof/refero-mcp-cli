@@ -3,10 +3,12 @@ import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { McpClient, ReferoError, DEFAULT_URL, extractImage, extractToolPayload } from './mcp-client.js';
+import { authPath, clearAuth, getStoredAuth, getValidAccessToken, login } from './auth.js';
 
 const HELP = `Refero CLI — design research from your terminal
 
 Usage:
+  refero auth login|status|logout
   refero search styles <query> [--page N] [--json]
   refero search screens <query> --platform web|ios [--page N] [--json]
   refero search flows <query> --platform web|ios [--page N] [--json]
@@ -17,6 +19,7 @@ Usage:
 Environment:
   REFERO_TOKEN       Bearer token for Refero MCP
   REFERO_MCP_URL     MCP endpoint (default: ${DEFAULT_URL})
+  REFERO_CONFIG_DIR   Config directory override (useful for isolated environments)
 
 Global options:
   --token TOKEN      Bearer token (overrides REFERO_TOKEN)
@@ -54,6 +57,12 @@ function integer(value, label) {
   return parsed;
 }
 
+function boundedInteger(value, label, max) {
+  const parsed = integer(value, label);
+  if (parsed > max) throw new ReferoError(`${label} must be between 1 and ${max}.`);
+  return parsed;
+}
+
 function ids(value, label) {
   const values = value.split(',').map((id) => id.trim()).filter(Boolean);
   if (!values.length || values.length > 10) throw new ReferoError(`${label} accepts 1–10 ids.`);
@@ -78,30 +87,43 @@ async function run(argv, io = {}) {
     return;
   }
   const [command, kind, ...rest] = positional;
+  if (command === 'auth') {
+    if (kind === 'login') { await login({ fetchImpl: io.fetchImpl, stdout }); return; }
+    if (kind === 'logout') { await clearAuth(); stdout.write('Signed out.\n'); return; }
+    if (kind === 'status') {
+      const auth = await getStoredAuth();
+      const status = auth?.access_token ? { signed_in: true, config: authPath(), obtained_at: auth.obtained_at, expires_at: auth.expires_in && auth.obtained_at ? auth.obtained_at + auth.expires_in * 1000 : undefined } : { signed_in: false, config: authPath() };
+      printPayload(status, options.json);
+      return;
+    }
+    throw new ReferoError('Auth command must be login, status, or logout.');
+  }
   const token = options.token || process.env.REFERO_TOKEN || process.env.REFERO_API_KEY;
-  const client = new McpClient({ url: process.env.REFERO_MCP_URL || DEFAULT_URL, token, fetchImpl: io.fetchImpl });
+  const storedToken = token ? undefined : await getValidAccessToken({ fetchImpl: io.fetchImpl });
+  const client = new McpClient({ url: process.env.REFERO_MCP_URL || DEFAULT_URL, token: token || storedToken, fetchImpl: io.fetchImpl });
   let result;
 
   if (command === 'search') {
     const query = need(rest.join(' '), 'query');
-    const normalized = kind.toLowerCase();
+    const normalized = kind?.toLowerCase();
     const tool = { styles: 'refero_search_styles', style: 'refero_search_styles', screens: 'refero_search_screens', screen: 'refero_search_screens', flows: 'refero_search_flows', flow: 'refero_search_flows' }[normalized];
     if (!tool) throw new ReferoError('Search target must be styles, screens, or flows.');
     const args = { query, page: options.page ? integer(options.page, '--page') : 1, response_format: options.json ? 'json' : 'md' };
-    if (tool !== 'refero_search_styles') args.platform = need(options.platform, '--platform');
+    if (tool !== 'refero_search_styles') args.platform = need(options.platform, '--platform').toLowerCase();
     if (args.platform && !['web', 'ios'].includes(args.platform)) throw new ReferoError('--platform must be web or ios.');
     result = await client.callTool(tool, args);
   } else if (command === 'get') {
-    const target = { styles: 'refero_get_style', style: 'refero_get_style', screens: 'refero_get_screen', screen: 'refero_get_screen', flows: 'refero_get_flow', flow: 'refero_get_flow' }[kind.toLowerCase()];
+    const target = { styles: 'refero_get_style', style: 'refero_get_style', screens: 'refero_get_screen', screen: 'refero_get_screen', flows: 'refero_get_flow', flow: 'refero_get_flow' }[kind?.toLowerCase()];
     if (!target) throw new ReferoError('Get target must be style, screen, or flow.');
     const values = ids(need(rest.join(','), 'id'), 'id');
     const key = target.includes('style') ? 'style' : target.includes('screen') ? 'screen' : 'flow';
-    const args = { [`${key}_ids`]: values, response_format: options.json ? 'json' : 'md' };
-    if (values.length === 1) { delete args[`${key}_ids`]; args[`${key}_id`] = values[0]; }
+    const typedValues = key === 'flow' ? values.map((value) => integer(value, 'flow id')) : values;
+    const args = { [`${key}_ids`]: typedValues, response_format: options.json ? 'json' : 'md' };
+    if (typedValues.length === 1) { delete args[`${key}_ids`]; args[`${key}_id`] = typedValues[0]; }
     result = await client.callTool(target, args);
   } else if (command === 'similar') {
     const screenId = need(kind, 'screen UUID');
-    result = await client.callTool('refero_get_similar_screens', { screen_id: screenId, limit: options.limit ? integer(options.limit, '--limit') : 10, response_format: options.json ? 'json' : 'md' });
+    result = await client.callTool('refero_get_similar_screens', { screen_id: screenId, limit: options.limit ? boundedInteger(options.limit, '--limit', 20) : 10, response_format: options.json ? 'json' : 'md' });
   } else if (command === 'image') {
     const screenId = need(kind, 'screen UUID');
     const size = options.size || 'thumbnail';
@@ -109,7 +131,7 @@ async function run(argv, io = {}) {
     const image = extractImage(await client.callTool('refero_get_screen_image', { screen_id: screenId, image_size: size }));
     const output = options.output || `${screenId}.png`;
     const extension = image.mimeType.includes('jpeg') ? '.jpg' : image.mimeType.includes('webp') ? '.webp' : '.png';
-    const destination = output.includes('.') ? output : `${output}${extension}`;
+    const destination = path.extname(output) ? output : `${output}${extension}`;
     await writeFile(destination, Buffer.from(image.data, 'base64'));
     stdout.write(`${destination}\n`);
     return;
