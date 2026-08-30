@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { writeFile } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { McpClient, ReferoError, DEFAULT_URL, extractImage, extractToolPayload } from './mcp-client.js';
 
 const HELP = `Refero CLI — design research from your terminal
@@ -118,7 +119,8 @@ async function run(argv, io = {}) {
   printPayload(extractToolPayload(result), options.json);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+const launchedDirectly = process.argv[1] && path.resolve(process.argv[1]).toLowerCase() === path.resolve(fileURLToPath(import.meta.url)).toLowerCase();
+if (launchedDirectly) {
   run(process.argv.slice(2)).catch((error) => {
     process.stderr.write(`refero: ${error.message}\n`);
     process.exitCode = 1;
