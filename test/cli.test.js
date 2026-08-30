@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { extractImage, extractToolPayload, McpClient } from '../src/mcp-client.js';
 import { parseArgs, run } from '../src/cli.js';
+import { AUTH_SERVER, login, RESOURCE } from '../src/auth.js';
 
 test('parses positional arguments and long options', () => {
   const parsed = parseArgs(['search', 'screens', 'pricing', 'page', '--platform', 'web', '--page=2', '--json']);
@@ -74,4 +78,34 @@ test('maps every documented research command to the current MCP tool contract', 
   assert.deepEqual(calls[2].arguments, { query: 'signup onboarding', page: 1, response_format: 'md', platform: 'ios' });
   assert.deepEqual(calls[5].arguments, { flow_ids: [11201, 11202], response_format: 'md' });
   assert.deepEqual(calls[6].arguments, { screen_id: 'screen-a', limit: 5, response_format: 'md' });
+});
+
+test('OAuth login uses the MCP resource indicator and stores credentials', async () => {
+  const configDir = await mkdtemp(join(tmpdir(), 'refero-cli-'));
+  const previousConfigDir = process.env.REFERO_CONFIG_DIR;
+  const seen = [];
+  process.env.REFERO_CONFIG_DIR = configDir;
+  const fetchImpl = async (url, init = {}) => {
+    if (url === AUTH_SERVER) return new Response(JSON.stringify({ authorization_endpoint: 'https://refero.design/oauth/authorize', registration_endpoint: 'https://api.refero.design/oauth/register', token_endpoint: 'https://api.refero.design/oauth/token' }), { headers: { 'content-type': 'application/json' } });
+    if (url.endsWith('/register')) return new Response(JSON.stringify({ client_id: 'test-client' }), { headers: { 'content-type': 'application/json' } });
+    if (url.endsWith('/token')) {
+      const body = new URLSearchParams(init.body);
+      seen.push(body.get('resource'));
+      return new Response(JSON.stringify({ access_token: 'test-access', refresh_token: 'test-refresh', expires_in: 3600 }), { headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error(`Unexpected URL in OAuth test: ${url}`);
+  };
+  try {
+    const stdout = { output: '', write(value) { this.output += value; } };
+    await login({ fetchImpl, stdout, browser: (authorizationUrl) => {
+      const authorization = new URL(authorizationUrl);
+      assert.equal(authorization.searchParams.get('resource'), RESOURCE);
+      setTimeout(() => fetch(`${authorization.searchParams.get('redirect_uri')}?code=test-code&state=${authorization.searchParams.get('state')}`), 0);
+    } });
+    assert.deepEqual(seen, [RESOURCE]);
+  } finally {
+    if (previousConfigDir === undefined) delete process.env.REFERO_CONFIG_DIR;
+    else process.env.REFERO_CONFIG_DIR = previousConfigDir;
+    await rm(configDir, { recursive: true, force: true });
+  }
 });

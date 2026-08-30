@@ -6,6 +6,7 @@ import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 
 const AUTH_SERVER = 'https://api.refero.design/.well-known/oauth-authorization-server';
+const RESOURCE = 'https://api.refero.design/mcp';
 const DEFAULT_SCOPE = 'read';
 
 function configPath() {
@@ -42,7 +43,7 @@ export async function getValidAccessToken({ fetchImpl = globalThis.fetch } = {})
   const metadata = await oauthMetadata(fetchImpl);
   const response = await fetchImpl(metadata.token_endpoint, {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: auth.refresh_token, client_id: auth.client_id })
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: auth.refresh_token, client_id: auth.client_id, resource: RESOURCE })
   });
   if (!response.ok) return auth.access_token;
   const refreshed = await response.json();
@@ -144,14 +145,14 @@ export async function login({ fetchImpl = globalThis.fetch, browser = openBrowse
     const authorization = new URL(metadata.authorization_endpoint);
     authorization.search = new URLSearchParams({
       response_type: 'code', client_id: registration.client_id, redirect_uri: redirectUri,
-      code_challenge: challenge, code_challenge_method: 'S256', scope: DEFAULT_SCOPE, state
+      code_challenge: challenge, code_challenge_method: 'S256', scope: DEFAULT_SCOPE, resource: RESOURCE, state
     });
     stdout.write(`Opening Refero sign-in in your browser...\n`);
     browser(authorization.href);
     const code = await waitForCallback(server, state);
     const tokenResponse = await fetchImpl(metadata.token_endpoint, {
       method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ grant_type: 'authorization_code', client_id: registration.client_id, code, redirect_uri: redirectUri, code_verifier: verifier })
+      body: new URLSearchParams({ grant_type: 'authorization_code', client_id: registration.client_id, code, redirect_uri: redirectUri, code_verifier: verifier, resource: RESOURCE })
     });
     if (!tokenResponse.ok) throw new Error(`Refero token exchange failed (${tokenResponse.status}).`);
     const tokens = await tokenResponse.json();
@@ -166,4 +167,4 @@ export async function login({ fetchImpl = globalThis.fetch, browser = openBrowse
 }
 
 export function authPath() { return configPath(); }
-export { AUTH_SERVER };
+export { AUTH_SERVER, RESOURCE };
