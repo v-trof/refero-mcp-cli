@@ -16,14 +16,14 @@ npm install -g .
 
 ## Configure
 
-The easiest setup is the browser login flow:
+The easiest setup is the token flow used by Refero’s MCP page:
 
 ```sh
 refero auth login
 refero auth status
 ```
 
-The CLI opens Refero in your browser, completes an authorization-code + PKCE sign-in through a local callback, and stores the resulting credentials in the per-user config directory. It refreshes an expired access token when a refresh token is available. For CI or an already-issued token, set a Refero bearer token in your shell instead:
+The CLI opens Refero in your browser, asks you to paste the API token shown on the page, and stores it in the per-user config directory. For CI or an already-issued token, set a Refero bearer token in your shell instead:
 
 ```powershell
 $env:REFERO_TOKEN = "your-token"

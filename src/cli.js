@@ -88,7 +88,7 @@ async function run(argv, io = {}) {
   }
   const [command, kind, ...rest] = positional;
   if (command === 'auth') {
-    if (kind === 'login') { await login({ fetchImpl: io.fetchImpl, stdout }); return; }
+    if (kind === 'login') { await login({ stdin: io.stdin, stdout, browser: io.browser }); return; }
     if (kind === 'logout') { await clearAuth(); stdout.write('Signed out.\n'); return; }
     if (kind === 'status') {
       const auth = await getStoredAuth();
@@ -99,7 +99,10 @@ async function run(argv, io = {}) {
     throw new ReferoError('Auth command must be login, status, or logout.');
   }
   const token = options.token || process.env.REFERO_TOKEN || process.env.REFERO_API_KEY;
-  const storedToken = token ? undefined : await getValidAccessToken({ fetchImpl: io.fetchImpl });
+  let storedToken = token ? undefined : await getValidAccessToken();
+  if (!token && !storedToken && (io.promptOnMissingToken ?? Boolean(process.stdin.isTTY))) {
+    storedToken = await login({ stdin: io.stdin, stdout, browser: io.browser });
+  }
   const client = new McpClient({ url: process.env.REFERO_MCP_URL || DEFAULT_URL, token: token || storedToken, fetchImpl: io.fetchImpl });
   let result;
 
