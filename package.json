@@ -1,0 +1,32 @@
+{
+  "name": "refero-mcp-cli",
+  "version": "0.1.0",
+  "description": "A focused command-line client for Refero MCP design research.",
+  "type": "module",
+  "bin": {
+    "refero": "src/cli.js"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "start": "node src/cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/v-trof/refero-mcp-cli.git"
+  },
+  "keywords": [
+    "refero",
+    "mcp",
+    "design-research",
+    "cli"
+  ],
+  "license": "MIT"
+}
